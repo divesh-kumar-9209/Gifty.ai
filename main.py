@@ -1,54 +1,67 @@
 import requests
+from flask import Flask, request, jsonify
 
-def ask_questions():
-    questions = [
-        "Who are you buying the gift for? (e.g., friend, parent, spouse, etc.)",
-        "What is the recipient's age group? (e.g., child, teenager, adult, senior)",
-        "What are some of their interests? (e.g., books, sports, tech, art)",
-        "What’s the occasion? (e.g., birthday, anniversary, holiday)",
-        "Do they have any favorite hobbies? (e.g., gardening, cooking, painting)",
-        "What is your budget range? (e.g., $20-50, $50-100, etc.)",
-        "Are you looking for something personalized?",
-        "Do you want the gift to be practical, sentimental, or fun?",
-        "What size or type of gift are you considering? (e.g., small, medium, large)",
-        "Do you have any color preferences for the gift?",
-    ]
-    
-    responses = {}
-    for question in questions:
-        responses[question] = input(question + "\n")
-    
-    return responses
+# Flask app initialization
+app = Flask(__name__)
 
-def generate_search_query(responses):
-    # Using .get() to avoid KeyErrors, with defaults in case of missing data
-    recipient = responses.get('Who are you buying the gift for?', 'someone')
-    occasion = responses.get('What’s the occasion?', 'any occasion')
-    interests = responses.get('What are some of their interests?', 'general interests')
-    
-    query = f"{recipient} gift for {occasion} {interests}"
-    return query
-def search_product(query):
-    # Mock data for testing purposes
-    mock_products = [
+# API Key and Endpoint
+GOOGLE_API_KEY = "AIzaSyC2wxR3SyQ5qEDzq6vrO7keM4p4mowOy5o"
+GOOGLE_API_ENDPOINT = "https://language.googleapis.com/v1/documents:analyzeEntities"
+
+# Function to analyze user preferences using Google NLP API
+def analyze_preferences(user_input):
+    headers = {"Content-Type": "application/json"}
+    data = {
+        "document": {
+            "type": "PLAIN_TEXT",
+            "content": user_input
+        },
+        "encodingType": "UTF8"
+    }
+
+    try:
+        response = requests.post(
+            f"{GOOGLE_API_ENDPOINT}?key={GOOGLE_API_KEY}",
+            headers=headers,
+            json=data
+        )
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        print(f"Error with Google NLP API: {e}")
+        return {"error": "Failed to analyze preferences"}
+
+# Function to fetch gift suggestions (mock implementation)
+def search_gifts(preferences):
+    # Example: use preferences to refine product results
+    # Replace with integration to a real product API
+    products = [
         {"title": "Personalized Mug", "price": "$15.00", "url": "https://example.com/mug"},
-        {"title": "Leather Wallet", "price": "$30.00", "url": "https://example.com/wallet"},
-        {"title": "Handmade Scarf", "price": "$25.00", "url": "https://example.com/scarf"}
+        {"title": "Bluetooth Speaker", "price": "$45.00", "url": "https://example.com/speaker"},
+        {"title": "Handmade Journal", "price": "$25.00", "url": "https://example.com/journal"},
     ]
-    return mock_products
-def display_suggestions(products):
-    print("\nHere are some gift suggestions based on your answers:\n")
-    for idx, product in enumerate(products, start=1):
-        print(f"{idx}. {product['title']}")
-        print(f"   Price: {product['price']}")
-        print(f"   Link: {product['url']}")
-        print("\n")
+    return products
 
-def main():
-    responses = ask_questions()
-    search_query = generate_search_query(responses)
-    products = search_product(search_query)
-    display_suggestions(products)
+# Flask route for suggesting gifts
+@app.route('/suggest-gift', methods=['POST'])
+def suggest_gift():
+    # Parse user input from the request
+    data = request.json
+    user_input = data.get("user_input", "")
 
-if __name__ == "__main__":
-    main()
+    if not user_input:
+        return jsonify({"error": "No input provided"}), 400
+
+    # Analyze user preferences using Google NLP API
+    preferences = analyze_preferences(user_input)
+    if "error" in preferences:
+        return jsonify({"error": "Failed to analyze preferences"}), 500
+
+    # Fetch gift suggestions based on preferences
+    gift_suggestions = search_gifts(preferences)
+
+    return jsonify({"suggestions": gift_suggestions})
+
+# Example usage (for testing locally)
+if __name__ == '__main__':
+    app.run(debug=True)
