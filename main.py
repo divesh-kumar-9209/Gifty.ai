@@ -2,7 +2,7 @@ import requests
 
 def ask_questions():
     questions = [
-        "Who are you buying the gift for? (e.g., friend, parent, spouse, etc.)",
+        "Who are you buying the gift for? (e.g., , parent, spouse, etc.)",
         "What is the recipient's age group? (e.g., child, teenager, adult, senior)",
         "What are some of their interests? (e.g., books, sports, tech, art)",
         "What’s the occasion? (e.g., birthday, anniversary, holiday)",
