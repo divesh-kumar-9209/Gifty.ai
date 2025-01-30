@@ -1,67 +1,144 @@
-import requests
-from flask import Flask, request, jsonify
+import tkinter as tk
+from tkinter import messagebox
+import webbrowser
+import scrapy
+from scrapy.crawler import CrawlerProcess
+import threading
+import csv
+from autocorrect import Speller
 
-# Flask app initialization
-app = Flask(__name__)
+spell = Speller()
 
-# API Key and Endpoint
-GOOGLE_API_KEY = "AIzaSyC2wxR3SyQ5qEDzq6vrO7keM4p4mowOy5o"
-GOOGLE_API_ENDPOINT = "https://language.googleapis.com/v1/documents:analyzeEntities"
+class GiftyAIApp:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Gifty.ai - Your Personalized Gift Finder")
+        self.root.geometry("800x600")
+        self.root.configure(bg="#f0f0f0")
+        
+        self.questions = [
+            "Who is the gift for?",
+            "What is the occasion?",
+            "What are their interests?",
+            "What is their age group?",
+            "Do they prefer practical or sentimental gifts?",
+            "Do they have any specific hobbies or favorite brands?",
+            "What is your budget range?",
+            "Do they have any dislikes?"
+        ]
+        
+        self.answers = {}
+        self.current_question = 0
+        
+        self.label = tk.Label(root, text=self.questions[self.current_question], font=("Arial", 16, "bold"), bg="#f0f0f0")
+        self.label.pack(pady=20)
+        
+        self.entry = tk.Entry(root, font=("Arial", 14), width=50)
+        self.entry.pack(pady=10)
+        self.entry.bind("<Return>", lambda event: self.next_question())
+        
+        self.button_frame = tk.Frame(root, bg="#f0f0f0")
+        self.button_frame.pack()
+        
+        self.next_button = tk.Button(self.button_frame, text="Next", command=self.next_question, font=("Arial", 12, "bold"), bg="#4CAF50", fg="white", padx=20, pady=5)
+        self.next_button.pack(side=tk.LEFT, padx=10)
+        
+        self.feedback_label = tk.Label(root, text="", font=("Arial", 14), bg="#f0f0f0")
+        self.feedback_label.pack()
+    
+    def next_question(self):
+        answer = self.entry.get().strip()
+        answer = spell(answer) if answer else "Skipped"
+        
+        self.answers[self.questions[self.current_question]] = answer
+        self.entry.delete(0, tk.END)
+        
+        self.current_question += 1
+        
+        if self.current_question < len(self.questions):
+            self.label.config(text=self.questions[self.current_question])
+        else:
+            self.save_answers()
+            self.label.config(text="Finding the perfect gift...")
+            self.entry.pack_forget()
+            self.next_button.pack_forget()
+            self.start_scraping()
+    
+    def save_answers(self):
+        with open("responses.csv", "a", newline='') as file:
+            writer = csv.writer(file)
+            writer.writerow(self.answers.values())
+    
+    def start_scraping(self):
+        thread = threading.Thread(target=self.run_scraper)
+        thread.start()
+    
+    def run_scraper(self):
+        process = CrawlerProcess()
+        process.crawl(GiftSpider, answers=self.answers, app=self)
+        process.start()
+    
+    def display_results(self, products):
+        self.label.config(text="Here are the best gift options:")
+        for product in products[:3]:
+            frame = tk.Frame(self.root, bg="#ffffff", padx=10, pady=10, bd=2, relief=tk.RIDGE)
+            frame.pack(pady=5, fill=tk.X)
+            
+            tk.Label(frame, text=product['title'], font=("Arial", 14, "bold"), bg="#ffffff").pack(anchor="w")
+            tk.Label(frame, text=f"Price: ₹{product['price']}", font=("Arial", 12), bg="#ffffff").pack(anchor="w")
+            
+            if product['image']:
+                image_label = tk.Label(frame, text="[Image Preview Here]", font=("Arial", 12), bg="#ffffff")
+                image_label.pack(anchor="w")
+            
+            if product['link']:
+                link = tk.Label(frame, text="Buy Now", fg="blue", cursor="hand2", font=("Arial", 12, "underline"), bg="#ffffff")
+                link.pack(anchor="w")
+                link.bind("<Button-1>", lambda e, url=product['link']: webbrowser.open(url))
+        
+        self.add_feedback_section()
+    
+    def add_feedback_section(self):
+        self.feedback_label.config(text="Did you find this helpful?")
+        self.feedback_entry = tk.Entry(self.root, font=("Arial", 14), width=50)
+        self.feedback_entry.pack(pady=10)
+        
+        self.feedback_button = tk.Button(self.root, text="Submit Feedback", command=self.save_feedback, font=("Arial", 12, "bold"), bg="#008CBA", fg="white", padx=20, pady=5)
+        self.feedback_button.pack()
+    
+    def save_feedback(self):
+        feedback = self.feedback_entry.get()
+        with open("feedback.txt", "a") as file:
+            file.write(feedback + "\n")
+        messagebox.showinfo("Thank you!", "Your feedback has been recorded.")
+        self.feedback_entry.delete(0, tk.END)
 
-# Function to analyze user preferences using Google NLP API
-def analyze_preferences(user_input):
-    headers = {"Content-Type": "application/json"}
-    data = {
-        "document": {
-            "type": "PLAIN_TEXT",
-            "content": user_input
-        },
-        "encodingType": "UTF8"
-    }
+class GiftSpider(scrapy.Spider):
+    name = "gift_spider"
+    
+    def __init__(self, answers, app, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.answers = answers
+        self.app = app
+        self.start_urls = [f"https://www.amazon.in/s?k={answers['Who is the gift for?']}+{answers['What is the occasion?']}+{answers['What are their interests?']}+{answers['What is their age group?']}+gift"]
+    
+    def parse(self, response):
+        products = []
+        for item in response.css(".s-main-slot .s-result-item")[:5]:
+            title = item.css(".a-text-normal::text").get()
+            price = item.css(".a-price-whole::text").get(default="Unknown")
+            link = response.urljoin(item.css(".a-link-normal::attr(href)").get())
+            image = item.css(".s-image::attr(src)").get()
+            
+            if title and price and link and image:
+                products.append({"title": title, "price": price, "link": link, "image": image})
+        
+        while len(products) < 3:
+            products.append({"title": "Alternative Gift", "price": "Unknown", "link": "", "image": ""})
+        
+        self.app.display_results(products)
 
-    try:
-        response = requests.post(
-            f"{GOOGLE_API_ENDPOINT}?key={GOOGLE_API_KEY}",
-            headers=headers,
-            json=data
-        )
-        response.raise_for_status()
-        return response.json()
-    except requests.exceptions.RequestException as e:
-        print(f"Error with Google NLP API: {e}")
-        return {"error": "Failed to analyze preferences"}
-
-# Function to fetch gift suggestions (mock implementation)
-def search_gifts(preferences):
-    # Example: use preferences to refine product results
-    # Replace with integration to a real product API
-    products = [
-        {"title": "Personalized Mug", "price": "$15.00", "url": "https://example.com/mug"},
-        {"title": "Bluetooth Speaker", "price": "$45.00", "url": "https://example.com/speaker"},
-        {"title": "Handmade Journal", "price": "$25.00", "url": "https://example.com/journal"},
-    ]
-    return products
-
-# Flask route for suggesting gifts
-@app.route('/suggest-gift', methods=['POST'])
-def suggest_gift():
-    # Parse user input from the request
-    data = request.json
-    user_input = data.get("user_input", "")
-
-    if not user_input:
-        return jsonify({"error": "No input provided"}), 400
-
-    # Analyze user preferences using Google NLP API
-    preferences = analyze_preferences(user_input)
-    if "error" in preferences:
-        return jsonify({"error": "Failed to analyze preferences"}), 500
-
-    # Fetch gift suggestions based on preferences
-    gift_suggestions = search_gifts(preferences)
-
-    return jsonify({"suggestions": gift_suggestions})
-
-# Example usage (for testing locally)
-if __name__ == '__main__':
-    app.run(debug=True)
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = GiftyAIApp(root)
+    root.mainloop()
