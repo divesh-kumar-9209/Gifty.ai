@@ -6,6 +6,9 @@ from scrapy.crawler import CrawlerProcess
 import threading
 import csv
 from autocorrect import Speller
+from PIL import Image, ImageTk
+import requests
+from io import BytesIO
 
 spell = Speller()
 
@@ -13,17 +16,17 @@ class GiftyAIApp:
     def __init__(self, root):
         self.root = root
         self.root.title("Gifty.ai - Your Personalized Gift Finder")
-        self.root.geometry("800x600")
-        self.root.configure(bg="#f0f0f0")
+        self.root.geometry("800x600")  # Set initial window size
+        self.root.resizable(True, True)  # Allow resizing
         
         self.questions = [
             "Who is the gift for?",
             "What is the occasion?",
             "What are their interests?",
-            "What is their age group?",
+            "What is their age?",
             "Do they prefer practical or sentimental gifts?",
-            "Do they have any specific hobbies or favorite brands?",
-            "What is your budget range?",
+            "Do they have any specific hobbies or any favorite brands on amazon?",
+            "What is your budget?",
             "Do they have any dislikes?"
         ]
         
@@ -80,16 +83,48 @@ class GiftyAIApp:
     
     def display_results(self, products):
         self.label.config(text="Here are the best gift options:")
-        for product in products[:3]:
-            frame = tk.Frame(self.root, bg="#ffffff", padx=10, pady=10, bd=2, relief=tk.RIDGE)
+        
+        # Create a frame for the results
+        self.results_frame = tk.Frame(self.root, bg="#f0f0f0")
+        self.results_frame.pack(fill="both", expand=True)
+        
+        # Create a canvas for the results
+        self.canvas = tk.Canvas(self.results_frame, bg="#f0f0f0")
+        self.canvas.pack(side="left", fill="both", expand=True)
+        
+        # Create a scrollbar for the results
+        self.scrollbar = tk.Scrollbar(self.results_frame, orient="vertical", command=self.canvas.yview)
+        self.scrollbar.pack(side="right", fill="y")
+        
+        # Configure the canvas to use the scrollbar
+        self.canvas.configure(yscrollcommand=self.scrollbar.set)
+        
+        # Create a frame for the products
+        self.products_frame = tk.Frame(self.canvas, bg="#f0f0f0")
+        self.canvas.create_window((0, 0), window=self.products_frame, anchor="center")  # Center the products
+        
+        # Display the products
+        for product in products[:3]:  # Ensure we only display up to 3 products
+            frame = tk.Frame(self.products_frame, bg="#ffffff", padx=10, pady=10, bd=2, relief=tk.RIDGE)
             frame.pack(pady=5, fill=tk.X)
             
             tk.Label(frame, text=product['title'], font=("Arial", 14, "bold"), bg="#ffffff").pack(anchor="w")
             tk.Label(frame, text=f"Price: ₹{product['price']}", font=("Arial", 12), bg="#ffffff").pack(anchor="w")
             
             if product['image']:
-                image_label = tk.Label(frame, text="[Image Preview Here]", font=("Arial", 12), bg="#ffffff")
-                image_label.pack(anchor="w")
+                try:
+                    # Fetch the image
+                    response = requests.get(product['image'])
+                    img_data = BytesIO(response.content)
+                    img = Image.open(img_data)
+                    img = img.resize((150, 150))  # Resize image to fit
+                    img_tk = ImageTk.PhotoImage(img)
+                    
+                    image_label = tk.Label(frame, image=img_tk, bg="#ffffff")
+                    image_label.image = img_tk  # Keep a reference to avoid garbage collection
+                    image_label.pack(anchor="w")
+                except Exception as e:
+                    print(f"Error loading image: {e}")
             
             if product['link']:
                 link = tk.Label(frame, text="Buy Now", fg="blue", cursor="hand2", font=("Arial", 12, "underline"), bg="#ffffff")
@@ -97,6 +132,16 @@ class GiftyAIApp:
                 link.bind("<Button-1>", lambda e, url=product['link']: webbrowser.open(url))
         
         self.add_feedback_section()
+        
+        # Update the scroll region of the canvas
+        self.products_frame.update_idletasks()
+        self.canvas.config(scrollregion=self.canvas.bbox("all"))
+        
+        # Bind mouse wheel scrolling
+        self.root.bind_all("<MouseWheel>", self.on_mouse_wheel)
+    
+    def on_mouse_wheel(self, event):
+        self.canvas.yview_scroll(int(-1*(event.delta/120)), "units")
     
     def add_feedback_section(self):
         self.feedback_label.config(text="Did you find this helpful?")
